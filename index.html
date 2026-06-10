@@ -854,14 +854,20 @@ onAuthStateChanged(auth, async (user) => {
     currentUser = null; isAdmin = false;
     return;
   }
-  // Check allowed
-  const userDoc = await getDoc(doc(db, 'residents', user.uid));
-  if (!userDoc.exists()) {
+  // Check allowed - search by email
+  const q = query(collection(db, 'residents'), where('email', '==', user.email));
+  const snap = await getDocs(q);
+  if (snap.empty) {
     showError('המשתמש שלך אינו רשום במערכת. פנה למנהל הועד.');
     await signOut(auth);
     return;
   }
-  currentUser = { uid: user.uid, ...userDoc.data() };
+  const userDoc = snap.docs[0];
+  // Save UID to document if missing
+  if (!userDoc.data().uid) {
+    await updateDoc(doc(db, 'residents', userDoc.id), { uid: user.uid });
+  }
+  currentUser = { uid: user.uid, docId: userDoc.id, ...userDoc.data() };
   isAdmin = currentUser.role === 'admin';
 
   document.getElementById('auth-screen').style.display = 'none';
