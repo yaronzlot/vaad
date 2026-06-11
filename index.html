@@ -1260,28 +1260,25 @@ async function renderHistoryGrid(apt, name, fee) {
     if (p.month && p.month.startsWith(String(year))) paidMonths[p.month] = { id: d.id, ...p };
   });
   const now = new Date();
-  let grid = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">';
+  let grid = '<div id="hist-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">';
   for (let m = 0; m < 12; m++) {
     const ym = year + '-' + String(m+1).padStart(2,'0');
     const isFuture = (m > now.getMonth());
     const paid = paidMonths[ym];
     if (paid) {
-      // Paid - show green, click to cancel
-      grid += '<div onclick="toggleMonth(\"'+ym+'\",\"'+paid.id+'\")" style="background:var(--green-light);border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer;">'
+      grid += '<div class="hist-cell" data-ym="'+ym+'" data-pid="'+paid.id+'" style="background:var(--green-light);border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer;">'
         + '<div style="font-size:12px;font-weight:700;color:var(--green);">'+monthNames[m]+'</div>'
         + '<div style="font-size:18px;margin:4px 0;">✅</div>'
         + '<div style="font-size:11px;color:var(--green);">₪'+(paid.amount||fee)+'</div>'
         + '</div>';
     } else if (isFuture) {
-      // Future - gray, not clickable
       grid += '<div style="background:var(--gray-100);border-radius:10px;padding:10px 6px;text-align:center;">'
         + '<div style="font-size:12px;font-weight:700;color:var(--gray-400);">'+monthNames[m]+'</div>'
         + '<div style="font-size:18px;margin:4px 0;">○</div>'
         + '<div style="font-size:11px;color:var(--gray-400);">-</div>'
         + '</div>';
     } else {
-      // Unpaid - red, click to mark paid
-      grid += '<div onclick="toggleMonth(\"'+ym+'\",null)" style="background:var(--red-light);border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer;">'
+      grid += '<div class="hist-cell" data-ym="'+ym+'" data-pid="" style="background:var(--red-light);border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer;">'
         + '<div style="font-size:12px;font-weight:700;color:var(--red);">'+monthNames[m]+'</div>'
         + '<div style="font-size:18px;margin:4px 0;">❌</div>'
         + '<div style="font-size:11px;color:var(--red);">₪'+fee+'</div>'
@@ -1297,26 +1294,30 @@ async function renderHistoryGrid(apt, name, fee) {
     + '</div>'
     + (isAdmin ? '<div style="font-size:12px;color:var(--gray-400);margin-bottom:12px;text-align:center;">לחץ על חודש לסימון/ביטול תשלום</div>' : '');
   document.getElementById('modal-history-content').innerHTML = summary + grid;
+  // Event delegation - attach after render
+  document.getElementById('hist-grid').addEventListener('click', async (e) => {
+    if (!isAdmin) return;
+    const cell = e.target.closest('.hist-cell');
+    if (!cell) return;
+    const ym = cell.dataset.ym;
+    const pid = cell.dataset.pid;
+    if (pid) {
+      if (!confirm('לבטל תשלום ' + ym + '?')) return;
+      await deleteDoc(doc(db, 'payments', pid));
+      showToast('תשלום בוטל');
+    } else {
+      await addDoc(collection(db, 'payments'), {
+        apt: parseInt(_histApt), name: _histName, amount: _histFee,
+        month: ym, paidAt: serverTimestamp(), recordedBy: currentUser.uid
+      });
+      showToast('✅ שולם');
+    }
+    await renderHistoryGrid(_histApt, _histName, _histFee);
+    loadPayments();
+  });
 }
 
-window.toggleMonth = async (ym, paymentId) => {
-  if (!isAdmin) return;
-  if (paymentId) {
-    // Cancel payment
-    if (!confirm('לבטל תשלום ' + ym + '?')) return;
-    await deleteDoc(doc(db, 'payments', paymentId));
-    showToast('תשלום בוטל');
-  } else {
-    // Mark paid
-    await addDoc(collection(db, 'payments'), {
-      apt: parseInt(_histApt), name: _histName, amount: _histFee,
-      month: ym, paidAt: serverTimestamp(), recordedBy: currentUser.uid
-    });
-    showToast('✅ ' + ym + ' - שולם');
-  }
-  await renderHistoryGrid(_histApt, _histName, _histFee);
-  loadPayments(); // refresh main view
-};
+
 
 // ===== ISSUES =====
 function loadIssues() {
