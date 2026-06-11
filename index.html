@@ -760,6 +760,17 @@
   </div>
 </div>
 
+<!-- Resident Payment History Modal -->
+<div class="modal-overlay" id="modal-resident-history">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div class="modal-title" id="modal-history-title" style="margin-bottom:0;">היסטוריית תשלומים</div>
+      <button onclick="closeModal('modal-resident-history')" style="background:none;border:none;font-size:20px;cursor:pointer;">✕</button>
+    </div>
+    <div id="modal-history-content"></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- FIREBASE -->
@@ -1106,13 +1117,13 @@ function renderPayments(ym) {
   const ps = document.getElementById('pay-pending-section');
   ps.querySelector('div').textContent = `⏳ ממתינים (${pendingItems.length})`;
   document.getElementById('pay-pending-list').innerHTML = pendingItems.map(({ resident: r }) => `
-    <div class="payment-item">
+    <div class="payment-item" onclick="showResidentHistory(${r.apt},'${r.name}',${r.fee || aptFee(r.apt)})" style="cursor:pointer;">
       <div class="payment-item-info">
         <div class="payment-item-name">${r.name}</div>
         <div class="payment-item-sub">דירה ${r.apt} • קומה ${r.floor !== undefined ? r.floor : '-'}</div>
       </div>
       <div class="payment-item-amount orange">${fmtCurrency(r.fee || aptFee(r.apt))}</div>
-      ${isAdmin ? `<button class="btn-success" style="margin-right:8px;" onclick="markPaid('${r.apt}','${r.name}',${r.fee || aptFee(r.apt)})">✓ שולם</button>` : ''}
+      ${isAdmin ? `<button class="btn-success" style="margin-right:8px;" onclick="event.stopPropagation();markPaid('${r.apt}','${r.name}',${r.fee || aptFee(r.apt)})">✓ שולם</button>` : ''}
     </div>
   `).join('') || '<div class="card-empty">🎉 כולם שילמו!</div>';
 
@@ -1120,13 +1131,13 @@ function renderPayments(ym) {
   const paid_s = document.getElementById('pay-paid-section');
   paid_s.querySelector('div').textContent = `✅ שילמו (${paidItems.length})`;
   document.getElementById('pay-paid-list').innerHTML = paidItems.map(({ resident: r, payment: p }) => `
-    <div class="payment-item">
+    <div class="payment-item" onclick="showResidentHistory(${r.apt},'${r.name}',${r.fee || aptFee(r.apt)})" style="cursor:pointer;">
       <div class="payment-item-info">
         <div class="payment-item-name">${r.name}</div>
         <div class="payment-item-sub">דירה ${r.apt} • ${p.paidAt ? new Date(p.paidAt.toDate()).toLocaleDateString('he-IL') : ''}</div>
       </div>
       <div class="payment-item-amount" style="color:var(--green)">${fmtCurrency(p.amount || aptFee(r.apt))}</div>
-      ${isAdmin ? `<button class="btn-danger" style="margin-right:8px;" onclick="cancelPayment('${p.id}')">ביטול</button>` : ''}
+      ${isAdmin ? `<button class="btn-danger" style="margin-right:8px;" onclick="event.stopPropagation();cancelPayment('${p.id}')">ביטול</button>` : ''}
     </div>
   `).join('');
 
@@ -1225,6 +1236,45 @@ window.savePayment = async () => {
     closeModal('modal-payment');
     loadPayments();
   } catch(e) { showToast('שגיאה: ' + e.message); }
+};
+
+// ===== RESIDENT PAYMENT HISTORY =====
+window.showResidentHistory = async (apt, name, fee) => {
+  document.getElementById('modal-history-title').textContent = name + ' - דירה ' + apt;
+  document.getElementById('modal-history-content').innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+  openModal('modal-resident-history');
+  const year = new Date().getFullYear();
+  const monthNames = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const snap = await getDocs(query(collection(db, 'payments'), where('apt','==', parseInt(apt))));
+  const paidMonths = {};
+  snap.docs.forEach(d => {
+    const p = d.data();
+    if (p.month && p.month.startsWith(String(year))) paidMonths[p.month] = p;
+  });
+  const now = new Date();
+  let grid = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">';
+  for (let m = 0; m < 12; m++) {
+    const ym = year + '-' + String(m+1).padStart(2,'0');
+    const isFuture = (m > now.getMonth());
+    const paid = paidMonths[ym];
+    const bg = paid ? 'var(--green-light)' : isFuture ? 'var(--gray-100)' : 'var(--red-light)';
+    const color = paid ? 'var(--green)' : isFuture ? 'var(--gray-400)' : 'var(--red)';
+    const icon = paid ? '✅' : isFuture ? '○' : '❌';
+    const amtStr = paid ? ('₪'+(paid.amount||fee)) : isFuture ? '-' : ('₪'+fee);
+    grid += '<div style="background:'+bg+';border-radius:10px;padding:10px 6px;text-align:center;">'
+      + '<div style="font-size:12px;font-weight:700;color:'+color+';">'+monthNames[m]+'</div>'
+      + '<div style="font-size:18px;margin:4px 0;">'+icon+'</div>'
+      + '<div style="font-size:11px;color:'+color+';">'+amtStr+'</div>'
+      + '</div>';
+  }
+  grid += '</div>';
+  const paidCount = Object.keys(paidMonths).length;
+  const totalPaid = Object.values(paidMonths).reduce((s,p) => s + (p.amount||fee), 0);
+  const summary = '<div style="display:flex;justify-content:space-between;margin-bottom:14px;font-size:14px;">'
+    + '<span style="color:var(--green);font-weight:600;">שולם: ₪'+totalPaid+'</span>'
+    + '<span style="color:var(--gray-600);">'+paidCount+'/12 חודשים</span>'
+    + '</div>';
+  document.getElementById('modal-history-content').innerHTML = summary + grid;
 };
 
 // ===== ISSUES =====
