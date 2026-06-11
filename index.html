@@ -517,6 +517,7 @@
       <div style="display:flex;gap:8px;">
         <select id="payment-month-select" class="form-select" style="width:auto;padding:6px 10px;font-size:13px;" onchange="loadPayments()"></select>
         <button id="btn-add-payment" style="display:none" class="btn-icon" onclick="openAddPayment()">+ הוסף</button>
+        <button id="btn-add-expense" style="display:none" class="btn-icon" onclick="openAddExpense()" title="הוצאה">+ הוצאה</button>
       </div>
     </div>
 
@@ -548,10 +549,12 @@
       <div class="progress-label" id="pay-progress-label">0 מתוך 0 דירות שילמו</div>
     </div>
 
-    <!-- Tabs: overview / by-resident -->
+    <!-- Tabs -->
     <div class="tabs-row">
       <button class="tab-btn active" onclick="setPayView('overview',this)">סקירה</button>
       <button class="tab-btn" onclick="setPayView('list',this)">רשימה</button>
+      <button class="tab-btn" onclick="setPayView('expenses',this)">הוצאות</button>
+      <button class="tab-btn" onclick="setPayView('balance',this)">מאזן</button>
     </div>
 
     <div class="screen-body">
@@ -569,6 +572,14 @@
       <!-- List view -->
       <div id="pay-view-list" style="display:none">
         <div id="pay-full-list"></div>
+      </div>
+      <!-- Expenses view -->
+      <div id="pay-view-expenses" style="display:none">
+        <div id="expenses-list"></div>
+      </div>
+      <!-- Balance view -->
+      <div id="pay-view-balance" style="display:none">
+        <div id="balance-content"></div>
       </div>
     </div>
   </div>
@@ -771,6 +782,38 @@
   </div>
 </div>
 
+<!-- Add Expense Modal -->
+<div class="modal-overlay" id="modal-expense">
+  <div class="modal">
+    <div class="modal-title">הוצאה חדשה</div>
+    <div class="form-group">
+      <label class="form-label">קטגוריה *</label>
+      <select class="form-select" id="exp-cat">
+        <option value="חשמל">חשמל</option>
+        <option value="מים">מים</option>
+        <option value="ניקיון">ניקיון</option>
+        <option value="מעלית">תחזוקת מעלית</option>
+        <option value="תיקון">תיקון</option>
+        <option value="אחר">אחר</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">תיאור *</label>
+      <input class="form-input" id="exp-desc" placeholder="פירוט ההוצאה"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">סכום (₪) *</label>
+      <input class="form-input" id="exp-amount" type="number" placeholder="0"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">תאריך</label>
+      <input class="form-input" id="exp-date" type="date"/>
+    </div>
+    <button class="btn-primary" onclick="saveExpense()">שמור הוצאה</button>
+    <button class="btn-secondary" onclick="closeModal('modal-expense')">ביטול</button>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- FIREBASE -->
@@ -905,6 +948,7 @@ function initUI() {
   if (isAdmin) {
     document.getElementById('btn-add-resident').style.display = '';
     document.getElementById('btn-add-payment').style.display = '';
+    document.getElementById('btn-add-expense').style.display = '';
     document.getElementById('btn-add-announce').style.display = '';
     document.getElementById('fab-issue').classList.add('visible');
     document.getElementById('residents-admin-badge').style.display = '';
@@ -1177,6 +1221,10 @@ window.setPayView = (view, btn) => {
   btn.classList.add('active');
   document.getElementById('pay-view-overview').style.display = view === 'overview' ? '' : 'none';
   document.getElementById('pay-view-list').style.display = view === 'list' ? '' : 'none';
+  document.getElementById('pay-view-expenses').style.display = view === 'expenses' ? '' : 'none';
+  document.getElementById('pay-view-balance').style.display = view === 'balance' ? '' : 'none';
+  if (view === 'expenses') loadExpenses();
+  if (view === 'balance') loadBalance();
 };
 
 window.markPaid = async (apt, name, amount) => {
@@ -1237,6 +1285,137 @@ window.savePayment = async () => {
     loadPayments();
   } catch(e) { showToast('שגיאה: ' + e.message); }
 };
+
+// ===== EXPENSES =====
+let allExpenses = [];
+
+function loadExpenses() {
+  const container = document.getElementById('expenses-list');
+  container.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+  getDocs(query(collection(db, 'expenses'), orderBy('date','desc'))).then(snap => {
+    allExpenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderExpenses();
+  });
+}
+
+function renderExpenses() {
+  const container = document.getElementById('expenses-list');
+  if (!allExpenses.length) {
+    container.innerHTML = '<div class="card-empty" style="margin:16px;">אין הוצאות רשומות</div>';
+    return;
+  }
+  const catIcons = { חשמל:'⚡', מים:'💧', ניקיון:'🧹', מעלית:'🛗', תיקון:'🔧', אחר:'📋' };
+  const total = allExpenses.reduce((s,e) => s + (e.amount||0), 0);
+  let html = '<div style="padding:12px 16px 4px;display:flex;justify-content:space-between;align-items:center;">'
+    + '<span style="font-size:15px;font-weight:700;">סה"כ הוצאות</span>'
+    + '<span style="font-size:18px;font-weight:700;color:var(--red);">₪'+total.toLocaleString('he-IL')+'</span>'
+    + '</div>';
+  html += allExpenses.map(e => {
+    const icon = catIcons[e.category] || '📋';
+    return '<div class="card" style="margin:8px 16px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
+      + '<div>'
+      + '<div style="font-size:15px;font-weight:700;">'+icon+' '+e.description+'</div>'
+      + '<div style="font-size:12px;color:var(--gray-400);margin-top:4px;">'+e.category+' • '+(e.date||'')+'</div>'
+      + '</div>'
+      + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">'
+      + '<span style="font-size:17px;font-weight:700;color:var(--red);">₪'+(e.amount||0).toLocaleString('he-IL')+'</span>'
+      + (isAdmin ? '<button class="btn-danger" style="padding:4px 10px;font-size:12px;" onclick="deleteExpense(\''+e.id+'\')">🗑</button>' : '')
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+  container.innerHTML = html;
+}
+
+window.openAddExpense = () => {
+  document.getElementById('exp-cat').value = 'חשמל';
+  document.getElementById('exp-desc').value = '';
+  document.getElementById('exp-amount').value = '';
+  document.getElementById('exp-date').value = new Date().toISOString().split('T')[0];
+  openModal('modal-expense');
+};
+
+window.saveExpense = async () => {
+  const desc = document.getElementById('exp-desc').value.trim();
+  const amount = parseInt(document.getElementById('exp-amount').value);
+  if (!desc || !amount) { showToast('חובה למלא תיאור וסכום'); return; }
+  try {
+    await addDoc(collection(db, 'expenses'), {
+      category: document.getElementById('exp-cat').value,
+      description: desc, amount,
+      date: document.getElementById('exp-date').value,
+      createdAt: serverTimestamp(), createdBy: currentUser.uid
+    });
+    showToast('✅ הוצאה נשמרה');
+    closeModal('modal-expense');
+    loadExpenses();
+    loadBalance();
+  } catch(e) { showToast('שגיאה: '+e.message); }
+};
+
+window.deleteExpense = async (id) => {
+  if (!confirm('למחוק הוצאה זו?')) return;
+  await deleteDoc(doc(db, 'expenses', id));
+  showToast('🗑 נמחק');
+  loadExpenses();
+  loadBalance();
+};
+
+// ===== BALANCE =====
+async function loadBalance() {
+  const container = document.getElementById('balance-content');
+  container.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+
+  // Total collected (all time)
+  const paySnap = await getDocs(collection(db, 'payments'));
+  const totalCollected = paySnap.docs.reduce((s,d) => s + (d.data().amount||0), 0);
+
+  // Total expenses (all time)
+  const expSnap = await getDocs(collection(db, 'expenses'));
+  const totalExpenses = expSnap.docs.reduce((s,d) => s + (d.data().amount||0), 0);
+  allExpenses = expSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+  const balance = totalCollected - totalExpenses;
+  const balColor = balance >= 0 ? 'var(--green)' : 'var(--red)';
+  const balIcon = balance >= 0 ? '📈' : '📉';
+
+  // Group expenses by category
+  const byCat = {};
+  allExpenses.forEach(e => {
+    byCat[e.category] = (byCat[e.category]||0) + (e.amount||0);
+  });
+  const catIcons = { חשמל:'⚡', מים:'💧', ניקיון:'🧹', מעלית:'🛗', תיקון:'🔧', אחר:'📋' };
+
+  let html = '<div style="padding:16px;">';
+  // Main balance card
+  html += '<div class="card" style="margin-bottom:16px;text-align:center;">'
+    + '<div style="font-size:14px;color:var(--gray-600);margin-bottom:8px;">יתרה נוכחית '+balIcon+'</div>'
+    + '<div style="font-size:36px;font-weight:800;color:'+balColor+';">₪'+Math.abs(balance).toLocaleString('he-IL')+'</div>'
+    + '<div style="font-size:13px;color:var(--gray-400);margin-top:4px;">'+(balance>=0?'עודף':'גירעון')+'</div>'
+    + '</div>';
+  // Summary row
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">'
+    + '<div class="stat-card"><div class="stat-value green">₪'+totalCollected.toLocaleString('he-IL')+'</div><div class="stat-label">סה"כ גבייה</div></div>'
+    + '<div class="stat-card"><div class="stat-value red">₪'+totalExpenses.toLocaleString('he-IL')+'</div><div class="stat-label">סה"כ הוצאות</div></div>'
+    + '</div>';
+  // Expenses by category
+  if (Object.keys(byCat).length) {
+    html += '<div style="font-size:15px;font-weight:700;margin-bottom:10px;">פירוט הוצאות לפי קטגוריה</div>';
+    Object.entries(byCat).sort((a,b)=>b[1]-a[1]).forEach(([cat,amt]) => {
+      const icon = catIcons[cat]||'📋';
+      const pct = totalExpenses > 0 ? Math.round(amt/totalExpenses*100) : 0;
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-100);">'
+        + '<span style="font-size:14px;">'+icon+' '+cat+'</span>'
+        + '<div style="text-align:left;">'
+        + '<span style="font-weight:700;color:var(--red);">₪'+amt.toLocaleString('he-IL')+'</span>'
+        + '<span style="font-size:11px;color:var(--gray-400);margin-right:6px;">'+pct+'%</span>'
+        + '</div></div>';
+    });
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
 
 // ===== RESIDENT PAYMENT HISTORY =====
 // current resident in history modal
