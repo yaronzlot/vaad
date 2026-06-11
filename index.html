@@ -1239,17 +1239,25 @@ window.savePayment = async () => {
 };
 
 // ===== RESIDENT PAYMENT HISTORY =====
+// current resident in history modal
+let _histApt, _histName, _histFee;
+
 window.showResidentHistory = async (apt, name, fee) => {
+  _histApt = apt; _histName = name; _histFee = fee;
   document.getElementById('modal-history-title').textContent = name + ' - דירה ' + apt;
   document.getElementById('modal-history-content').innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
   openModal('modal-resident-history');
+  await renderHistoryGrid(apt, name, fee);
+};
+
+async function renderHistoryGrid(apt, name, fee) {
   const year = new Date().getFullYear();
   const monthNames = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   const snap = await getDocs(query(collection(db, 'payments'), where('apt','==', parseInt(apt))));
   const paidMonths = {};
   snap.docs.forEach(d => {
     const p = d.data();
-    if (p.month && p.month.startsWith(String(year))) paidMonths[p.month] = p;
+    if (p.month && p.month.startsWith(String(year))) paidMonths[p.month] = { id: d.id, ...p };
   });
   const now = new Date();
   let grid = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">';
@@ -1257,15 +1265,28 @@ window.showResidentHistory = async (apt, name, fee) => {
     const ym = year + '-' + String(m+1).padStart(2,'0');
     const isFuture = (m > now.getMonth());
     const paid = paidMonths[ym];
-    const bg = paid ? 'var(--green-light)' : isFuture ? 'var(--gray-100)' : 'var(--red-light)';
-    const color = paid ? 'var(--green)' : isFuture ? 'var(--gray-400)' : 'var(--red)';
-    const icon = paid ? '✅' : isFuture ? '○' : '❌';
-    const amtStr = paid ? ('₪'+(paid.amount||fee)) : isFuture ? '-' : ('₪'+fee);
-    grid += '<div style="background:'+bg+';border-radius:10px;padding:10px 6px;text-align:center;">'
-      + '<div style="font-size:12px;font-weight:700;color:'+color+';">'+monthNames[m]+'</div>'
-      + '<div style="font-size:18px;margin:4px 0;">'+icon+'</div>'
-      + '<div style="font-size:11px;color:'+color+';">'+amtStr+'</div>'
-      + '</div>';
+    if (paid) {
+      // Paid - show green, click to cancel
+      grid += '<div onclick="toggleMonth(\"'+ym+'\",\"'+paid.id+'\")" style="background:var(--green-light);border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer;">'
+        + '<div style="font-size:12px;font-weight:700;color:var(--green);">'+monthNames[m]+'</div>'
+        + '<div style="font-size:18px;margin:4px 0;">✅</div>'
+        + '<div style="font-size:11px;color:var(--green);">₪'+(paid.amount||fee)+'</div>'
+        + '</div>';
+    } else if (isFuture) {
+      // Future - gray, not clickable
+      grid += '<div style="background:var(--gray-100);border-radius:10px;padding:10px 6px;text-align:center;">'
+        + '<div style="font-size:12px;font-weight:700;color:var(--gray-400);">'+monthNames[m]+'</div>'
+        + '<div style="font-size:18px;margin:4px 0;">○</div>'
+        + '<div style="font-size:11px;color:var(--gray-400);">-</div>'
+        + '</div>';
+    } else {
+      // Unpaid - red, click to mark paid
+      grid += '<div onclick="toggleMonth(\"'+ym+'\",null)" style="background:var(--red-light);border-radius:10px;padding:10px 6px;text-align:center;cursor:pointer;">'
+        + '<div style="font-size:12px;font-weight:700;color:var(--red);">'+monthNames[m]+'</div>'
+        + '<div style="font-size:18px;margin:4px 0;">❌</div>'
+        + '<div style="font-size:11px;color:var(--red);">₪'+fee+'</div>'
+        + '</div>';
+    }
   }
   grid += '</div>';
   const paidCount = Object.keys(paidMonths).length;
@@ -1273,8 +1294,28 @@ window.showResidentHistory = async (apt, name, fee) => {
   const summary = '<div style="display:flex;justify-content:space-between;margin-bottom:14px;font-size:14px;">'
     + '<span style="color:var(--green);font-weight:600;">שולם: ₪'+totalPaid+'</span>'
     + '<span style="color:var(--gray-600);">'+paidCount+'/12 חודשים</span>'
-    + '</div>';
+    + '</div>'
+    + (isAdmin ? '<div style="font-size:12px;color:var(--gray-400);margin-bottom:12px;text-align:center;">לחץ על חודש לסימון/ביטול תשלום</div>' : '');
   document.getElementById('modal-history-content').innerHTML = summary + grid;
+}
+
+window.toggleMonth = async (ym, paymentId) => {
+  if (!isAdmin) return;
+  if (paymentId) {
+    // Cancel payment
+    if (!confirm('לבטל תשלום ' + ym + '?')) return;
+    await deleteDoc(doc(db, 'payments', paymentId));
+    showToast('תשלום בוטל');
+  } else {
+    // Mark paid
+    await addDoc(collection(db, 'payments'), {
+      apt: parseInt(_histApt), name: _histName, amount: _histFee,
+      month: ym, paidAt: serverTimestamp(), recordedBy: currentUser.uid
+    });
+    showToast('✅ ' + ym + ' - שולם');
+  }
+  await renderHistoryGrid(_histApt, _histName, _histFee);
+  loadPayments(); // refresh main view
 };
 
 // ===== ISSUES =====
