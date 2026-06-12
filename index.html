@@ -527,10 +527,12 @@
 
   <!-- PAYMENTS SCREEN -->
   <div id="screen-payments" class="screen">
-    <div class="screen-header">
-      <div class="screen-title">ניהול כספים</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+    <div class="screen-header" style="flex-direction:column;align-items:stretch;gap:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="screen-title">ניהול כספים</div>
         <select id="payment-month-select" class="form-select" style="width:auto;padding:6px 10px;font-size:13px;" onchange="loadPayments()"></select>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
         <button id="btn-add-payment" style="display:none" class="btn-icon" onclick="openAddPayment()">+ הוסף</button>
         <button id="btn-add-expense" style="display:none" class="btn-icon" onclick="openAddExpense()">+ הוצאה</button>
         <button id="btn-show-log" style="display:none" class="btn-icon" onclick="openLog()">📋 לוג</button>
