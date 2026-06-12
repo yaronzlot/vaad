@@ -1468,9 +1468,10 @@ window.openLog = async () => {
 window.generatePDF = async () => {
   try {
     showToast('📄 מכין דוח...');
-    if (!window.jspdf) {
+    // Load html2pdf library
+    if (!window.html2pdf) {
       const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
       await new Promise((resolve, reject) => {
         script.onload = resolve;
         script.onerror = reject;
@@ -1484,11 +1485,10 @@ window.generatePDF = async () => {
 };
 
 async function createPDFReport() {
-  // Use the year of the currently selected month in the payments screen
   const selectedYm = document.getElementById('payment-month-select').value;
   const year = selectedYm ? parseInt(selectedYm.split('-')[0]) : new Date().getFullYear();
   
-  // Fetch all residents and payments for this year
+  // Fetch data
   const resSnap = await getDocs(collection(db, 'residents'));
   const residents = resSnap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (parseInt(a.apt)||0) - (parseInt(b.apt)||0));
   
@@ -1502,102 +1502,94 @@ async function createPDFReport() {
     }
   });
 
-  const {jsPDF} = window.jspdf;
-  const doc = new jsPDF({orientation: 'landscape', unit: 'mm', format: 'a4'});
-  doc.setR2L(true);
+  const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  
-  // Use helvetica - works fine with numbers and can display basic text
-  doc.setFont('helvetica', 'normal');
-  
-  // Title
-  doc.setFontSize(14);
-  doc.text('Payment Report - Building ' + year, pageWidth/2, 15, {align: 'center'});
-  
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  
-  // Table headers
-  let y = 25;
-  const colWidths = [30, 20, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 20];
-  let x = pageWidth - 10;
-  
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'bold');
-  
-  const headers = ['Name', 'Apt', ...months, 'Total'];
-  headers.forEach((h, i) => {
-    doc.text(h, x - colWidths.slice(0, i+1).reduce((a,b) => a+b, 0), y);
-  });
-  
-  y += 5;
-  // Draw line
-  doc.setDrawColor(26, 86, 219);
-  doc.line(10, y, pageWidth - 10, y);
-  y += 3;
-  
-  // Table rows
-  doc.setFont('helvetica', 'normal');
-  let rowIdx = 0;
-  
-  const paidSet = new Set(Object.keys(paymentMap));
+  let tableRows = '';
+  let totalCollected = 0;
+  let paidCount = 0;
   
   residents.forEach(r => {
-    const row = [];
-    row.push((r.name || '-').substring(0, 20));
-    row.push(String(r.apt || '-'));
+    let rowTotal = 0;
+    let rowHtml = `<tr>
+      <td style="font-weight:bold;text-align:center;border:1px solid #ddd;padding:8px;">${r.apt}</td>
+      <td style="text-align:right;border:1px solid #ddd;padding:8px;">${r.name}</td>`;
     
-    let total = 0;
     for (let m = 0; m < 12; m++) {
       const ym = year + '-' + String(m+1).padStart(2,'0');
       const key = r.apt + '_' + ym;
       const paid = paymentMap[key];
       const fee = r.fee || ((r.apt >= 2 && r.apt <= 5) ? 175 : 200);
+      
       if (paid) {
-        row.push('✓');
-        total += (paid.amount || fee);
+        rowHtml += `<td style="text-align:center;border:1px solid #ddd;padding:8px;background:#e8f7f2;color:#0E9F6E;font-weight:bold;">✓</td>`;
+        rowTotal += (paid.amount || fee);
+        paidCount++;
       } else {
-        row.push('-');
+        rowHtml += `<td style="text-align:center;border:1px solid #ddd;padding:8px;">-</td>`;
       }
     }
-    row.push('₪' + total);
     
-    // Alternate row color
-    if (rowIdx % 2 === 0) {
-      doc.setFillColor(240, 240, 240);
-      doc.rect(10, y - 3, pageWidth - 20, 4, 'F');
-    }
-    
-    doc.setFontSize(8);
-    let cellX = pageWidth - 10;
-    row.forEach((cell, i) => {
-      const cellWidth = colWidths[i];
-      doc.text(String(cell), cellX - colWidths.slice(0, i+1).reduce((a,b) => a+b, 0), y);
-    });
-    
-    y += 4;
-    rowIdx++;
-    
-    // New page if needed
-    if (y > pageHeight - 15) {
-      doc.addPage();
-      y = 15;
-    }
+    rowHtml += `<td style="text-align:center;border:1px solid #ddd;padding:8px;font-weight:bold;">₪${rowTotal}</td></tr>`;
+    tableRows += rowHtml;
+    totalCollected += rowTotal;
   });
+
+  const html = `
+    <html>
+    <head>
+      <meta charset="utf-8"/>
+      <style>
+        body { font-family: Arial, sans-serif; direction: rtl; text-align: right; padding: 20px; }
+        h1 { text-align: center; color: #1A56DB; margin-bottom: 5px; }
+        h2 { text-align: center; color: #666; font-size: 16px; margin-top: 0; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }
+        th { background: #1A56DB; color: white; padding: 10px; border: 1px solid #ddd; text-align: center; font-weight: bold; }
+        td { padding: 8px; border: 1px solid #ddd; }
+        .summary { margin-top: 30px; font-size: 16px; }
+        .summary-line { margin: 10px 0; }
+        .total { font-weight: bold; color: #1A56DB; }
+      </style>
+    </head>
+    <body>
+      <h1>דוח תשלומים לוועד הבית</h1>
+      <h2>שנה ${year}</h2>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>דירה</th>
+            <th>שם</th>
+            ${months.map(m => `<th>${m}</th>`).join('')}
+            <th>סה"כ</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+      
+      <div class="summary">
+        <div class="summary-line"><span class="total">סה"כ תשלומים:</span> ₪${totalCollected.toLocaleString('he-IL')}</div>
+        <div class="summary-line"><span class="total">מספר תשלומים:</span> ${paidCount}</div>
+        <div class="summary-line"><span class="total">סה"כ דיירים:</span> ${residents.length}</div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const element = document.createElement('div');
+  element.innerHTML = html;
   
-  // Summary
-  y += 5;
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  const totalCollected = Object.values(paymentMap).reduce((s,p) => s + (p.amount || 0), 0);
-  const paidCount = paymentMap ? Object.keys(paymentMap).length : 0;
-  doc.text('Total Payments: ₪' + totalCollected.toLocaleString('en-US'), 20, y);
-  doc.text('Paid: ' + paidCount, 20, y + 7);
+  const opt = {
+    margin: 10,
+    filename: `vaad_bait_${year}.pdf`,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2 },
+    jsPDF: { orientation: 'landscape', unit: 'mm', format: 'a4' }
+  };
   
-  const filename = 'vaad_bait_' + year + '.pdf';
-  doc.save(filename);
-  showToast('📄 PDF downloaded');
+  html2pdf().set(opt).from(element).save();
+  showToast('📄 דוח PDF הורד בהצלחה');
 }
 
 // ===== RESIDENT PAYMENT HISTORY =====
