@@ -1046,7 +1046,7 @@ function renderResidents(list) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
           ${r.role === 'admin' ? '<span class="badge badge-orange">ועד</span>' : '<span class="badge badge-gray">דייר</span>'}
-          <span class="badge badge-blue">${fmtCurrency(r.fee || aptFee(r.apt))}</span>
+          <span class="badge badge-blue">${fmtCurrency(aptFee(r.apt))}</span>
           ${isAdmin ? `<button class="btn-icon" style="padding:5px 10px;font-size:12px;" onclick="editResident('${r.id}')">✏️ ערוך</button>` : ''}
         </div>
       </div>
@@ -1097,7 +1097,7 @@ window.editResident = (id) => {
   document.getElementById('r-phone').value = r.phone || '';
   document.getElementById('r-email').value = r.email || '';
   document.getElementById('r-role').value = r.role || 'tenant';
-  document.getElementById('r-fee').value = r.fee || aptFee(r.apt);
+  document.getElementById('r-fee').value = aptFee(r.apt);
   openModal('modal-resident');
 };
 
@@ -1114,7 +1114,6 @@ window.saveResident = async () => {
     phone: document.getElementById('r-phone').value.trim(),
     email: document.getElementById('r-email').value.trim(),
     role: document.getElementById('r-role').value,
-    fee: parseInt(document.getElementById('r-fee').value) || aptFee(apt),
     updatedAt: serverTimestamp()
   };
 
@@ -1147,7 +1146,7 @@ function renderPayments(ym) {
   const pendingItems = [], paidItems = [];
 
   allResidents.forEach(r => {
-    const fee = r.fee || aptFee(r.apt);
+    const fee = aptFee(r.apt);
     totalExpected += fee;
     const payment = paidMap[r.apt];
     if (payment) {
@@ -1176,13 +1175,13 @@ function renderPayments(ym) {
   const ps = document.getElementById('pay-pending-section');
   ps.querySelector('div').textContent = `⏳ ממתינים (${pendingItems.length})`;
   document.getElementById('pay-pending-list').innerHTML = pendingItems.map(({ resident: r }) => `
-    <div class="payment-item" onclick="showResidentHistory(${r.apt},'${r.name}',${r.fee || aptFee(r.apt)})" style="cursor:pointer;">
+    <div class="payment-item" onclick="showResidentHistory(${r.apt},'${r.name}',${aptFee(r.apt)})" style="cursor:pointer;">
       <div class="payment-item-info">
         <div class="payment-item-name">${r.name}</div>
         <div class="payment-item-sub">דירה ${r.apt} • קומה ${r.floor !== undefined ? r.floor : '-'}</div>
       </div>
-      <div class="payment-item-amount orange">${fmtCurrency(r.fee || aptFee(r.apt))}</div>
-      ${isAdmin ? `<button class="btn-success" style="margin-right:8px;" onclick="event.stopPropagation();markPaid('${r.apt}','${r.name}',${r.fee || aptFee(r.apt)})">✓ שולם</button>` : ''}
+      <div class="payment-item-amount orange">${fmtCurrency(aptFee(r.apt))}</div>
+      ${isAdmin ? `<button class="btn-success" style="margin-right:8px;" onclick="event.stopPropagation();markPaid('${r.apt}','${r.name}',${aptFee(r.apt)})">✓ שולם</button>` : ''}
     </div>
   `).join('') || '<div class="card-empty">🎉 כולם שילמו!</div>';
 
@@ -1190,7 +1189,7 @@ function renderPayments(ym) {
   const paid_s = document.getElementById('pay-paid-section');
   paid_s.querySelector('div').textContent = `✅ שילמו (${paidItems.length})`;
   document.getElementById('pay-paid-list').innerHTML = paidItems.map(({ resident: r, payment: p }) => `
-    <div class="payment-item" onclick="showResidentHistory(${r.apt},'${r.name}',${r.fee || aptFee(r.apt)})" style="cursor:pointer;">
+    <div class="payment-item" onclick="showResidentHistory(${r.apt},'${r.name}',${aptFee(r.apt)})" style="cursor:pointer;">
       <div class="payment-item-info">
         <div class="payment-item-name">${r.name}</div>
         <div class="payment-item-sub">דירה ${r.apt} • ${p.paidAt ? new Date(p.paidAt.toDate()).toLocaleDateString('he-IL') : ''}</div>
@@ -1216,11 +1215,11 @@ function renderPayments(ym) {
               <td><strong>${r.apt}</strong></td>
               <td>${r.name}</td>
               <td>${r.floor !== undefined ? r.floor : '-'}</td>
-              <td>${fmtCurrency(r.fee || aptFee(r.apt))}</td>
+              <td>${fmtCurrency(aptFee(r.apt))}</td>
               <td>${paid ? '<span class="badge badge-green">שולם</span>' : '<span class="badge badge-orange">ממתין</span>'}</td>
               ${isAdmin ? `<td>${paid
                 ? `<button class="btn-danger" style="padding:4px 8px;font-size:11px;" onclick="cancelPayment('${p.id}')">ביטול</button>`
-                : `<button class="btn-success" style="padding:4px 8px;font-size:11px;" onclick="markPaid('${r.apt}','${r.name}',${r.fee || aptFee(r.apt)})">שולם</button>`
+                : `<button class="btn-success" style="padding:4px 8px;font-size:11px;" onclick="markPaid('${r.apt}','${r.name}',${aptFee(r.apt)})">שולם</button>`
               }</td>` : ''}
             </tr>
           `).join('')}
@@ -1518,7 +1517,7 @@ async function createPDFReport() {
       const ym = year + '-' + String(m+1).padStart(2,'0');
       const key = r.apt + '_' + ym;
       const paid = paymentMap[key];
-      const fee = r.fee || aptFee(r.apt);
+      const fee = aptFee(r.apt);
       
       if (paid) {
         rowHtml += `<td style="text-align:center;border:1px solid #ddd;padding:8px;background:#e8f7f2;color:#0E9F6E;font-weight:bold;">✓</td>`;
