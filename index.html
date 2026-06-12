@@ -514,10 +514,12 @@
   <div id="screen-payments" class="screen">
     <div class="screen-header">
       <div class="screen-title">ניהול כספים</div>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
         <select id="payment-month-select" class="form-select" style="width:auto;padding:6px 10px;font-size:13px;" onchange="loadPayments()"></select>
         <button id="btn-add-payment" style="display:none" class="btn-icon" onclick="openAddPayment()">+ הוסף</button>
-        <button id="btn-add-expense" style="display:none" class="btn-icon" onclick="openAddExpense()" title="הוצאה">+ הוצאה</button>
+        <button id="btn-add-expense" style="display:none" class="btn-icon" onclick="openAddExpense()">+ הוצאה</button>
+        <button id="btn-show-log" style="display:none" class="btn-icon" onclick="openLog()">📋 לוג</button>
+        <button id="btn-pdf-report" style="display:none" class="btn-icon" onclick="generatePDF()">📄 PDF</button>
       </div>
     </div>
 
@@ -673,7 +675,7 @@
     <div class="form-group">
       <label class="form-label">סכום ועד חודשי (₪)</label>
       <input class="form-input" id="r-fee" type="number" placeholder="200"/>
-      <div style="font-size:12px;color:var(--gray-400);margin-top:4px;">דירות 1-4 = 175₪, שאר הדירות = 200₪</div>
+      <div style="font-size:12px;color:var(--gray-400);margin-top:4px;">דירות 2-5 = 175₪, שאר הדירות = 200₪</div>
     </div>
     <button class="btn-primary" onclick="saveResident()">שמור</button>
     <button class="btn-secondary" onclick="closeModal('modal-resident')">ביטול</button>
@@ -814,6 +816,17 @@
   </div>
 </div>
 
+<!-- Payment Log Modal -->
+<div class="modal-overlay" id="modal-log">
+  <div class="modal">
+    <div class="modal-title">לוג תשלומים</div>
+    <div id="log-content"></div>
+  </div>
+</div>
+
+<!-- PDF generation (hidden) -->
+<div id="pdf-container" style="display:none"></div>
+
 <div id="toast"></div>
 
 <!-- FIREBASE -->
@@ -882,7 +895,7 @@ function currentYM() {
 
 function aptFee(aptNum) {
   const n = parseInt(aptNum);
-  return (n >= 1 && n <= 4) ? 175 : 200;
+  return (n >= 2 && n <= 5) ? 175 : 200;
 }
 
 // ===== AUTH =====
@@ -949,6 +962,8 @@ function initUI() {
     document.getElementById('btn-add-resident').style.display = '';
     document.getElementById('btn-add-payment').style.display = '';
     document.getElementById('btn-add-expense').style.display = '';
+    document.getElementById('btn-show-log').style.display = '';
+    document.getElementById('btn-pdf-report').style.display = '';
     document.getElementById('btn-add-announce').style.display = '';
     document.getElementById('fab-issue').classList.add('visible');
     document.getElementById('residents-admin-badge').style.display = '';
@@ -1415,6 +1430,129 @@ async function loadBalance() {
   }
   html += '</div>';
   container.innerHTML = html;
+}
+
+// ===== PAYMENT LOG & PDF REPORT =====
+window.openLog = async () => {
+  const container = document.getElementById('log-content');
+  container.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
+  openModal('modal-log');
+
+  const snap = await getDocs(query(collection(db, 'payments'), orderBy('paidAt','desc')));
+  const payments = snap.docs.map(d => ({id: d.id, ...d.data()}));
+  
+  if (!payments.length) {
+    container.innerHTML = '<div class="card-empty">אין תשלומים רשומים</div>';
+    return;
+  }
+
+  let html = '<div style="padding:12px 0;max-height:70vh;overflow-y:auto;">';
+  payments.forEach(p => {
+    const dateStr = p.paidAt ? new Date(p.paidAt.toDate()).toLocaleString('he-IL') : '-';
+    const monthStr = p.month ? p.month : '-';
+    html += '<div class="card" style="margin-bottom:8px;padding:12px;font-size:13px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
+      + '<div>'
+      + '<div style="font-weight:700;">'+p.name+' (דירה '+p.apt+')</div>'
+      + '<div style="color:var(--gray-400);font-size:12px;margin-top:2px;">'+monthStr+' • ₪'+(p.amount||p.fee)+'</div>'
+      + '<div style="color:var(--gray-400);font-size:11px;margin-top:4px;">📅 '+dateStr+'</div>'
+      + '</div>'
+      + '<div style="text-align:left;color:var(--green);font-weight:600;">✅</div>'
+      + '</div>'
+      + '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+};
+
+window.generatePDF = async () => {
+  // Load jsPDF from CDN
+  if (!window.jspdf) {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    script.onload = () => { createPDFReport(); };
+    document.head.appendChild(script);
+  } else {
+    createPDFReport();
+  }
+};
+
+async function createPDFReport() {
+  const year = new Date().getFullYear();
+  // Fetch all residents and payments for this year
+  const resSnap = await getDocs(collection(db, 'residents'));
+  const residents = resSnap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.apt||0) - (b.apt||0));
+  
+  const paySnap = await getDocs(query(collection(db, 'payments')));
+  const paymentMap = {};
+  paySnap.docs.forEach(d => {
+    const p = d.data();
+    if (p.month && p.month.startsWith(String(year))) {
+      const key = p.apt + '_' + p.month;
+      paymentMap[key] = p;
+    }
+  });
+
+  // Build table data
+  const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const tableHead = ['דיירים', 'דירה', ...months, 'סה"כ'];
+  const tableBody = residents.map(r => {
+    const row = [r.name || '-', r.apt || '-'];
+    let total = 0;
+    for (let m = 0; m < 12; m++) {
+      const ym = year + '-' + String(m+1).padStart(2,'0');
+      const key = r.apt + '_' + ym;
+      const paid = paymentMap[key];
+      const fee = r.fee || ((r.apt >= 2 && r.apt <= 5) ? 175 : 200);
+      if (paid) {
+        row.push('✓');
+        total += (paid.amount || fee);
+      } else {
+        row.push('-');
+      }
+    }
+    row.push(total);
+    return row;
+  });
+
+  // Create PDF
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({orientation: 'landscape', unit: 'mm', format: 'a4', compress: true});
+  doc.setR2L(true); // Hebrew RTL
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  // Title
+  doc.setFontSize(16);
+  doc.text('תשלומים לוועד הבית לשנת ' + year, pageWidth/2, 15, {align: 'center'});
+  doc.setFontSize(12);
+  doc.text('עבור הערמונים 1 קרית ביאליק', pageWidth/2, 22, {align: 'center'});
+
+  // Table
+  doc.autoTable({
+    head: [tableHead],
+    body: tableBody,
+    startY: 30,
+    theme: 'grid',
+    styles: { font: 'arial', fontSize: 9, halign: 'center', valign: 'middle' },
+    headStyles: { fillColor: [26, 86, 219], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [240, 240, 240] },
+    columnStyles: { 0: { halign: 'right' } },
+    margin: { left: 10, right: 10 }
+  });
+
+  // Summary
+  const finalY = doc.internal.pageSize.getHeight() - 40;
+  doc.setFontSize(11);
+  const totalCollected = Object.values(paymentMap).reduce((s,p) => s + (p.amount||0), 0);
+  const paidCount = Object.keys(paymentMap).length;
+  doc.text('סה"כ תשלומים: ₪' + totalCollected.toLocaleString('he-IL'), 20, finalY);
+  doc.text('מספר תשלומים: ' + paidCount, 20, finalY + 10);
+
+  // Download
+  const filename = 'vaad_bait_' + year + '.pdf';
+  doc.save(filename);
+  showToast('📄 דוח PDF הורד בהצלחה');
 }
 
 // ===== RESIDENT PAYMENT HISTORY =====
