@@ -1518,7 +1518,7 @@ async function createPDFReport() {
       const ym = year + '-' + String(m+1).padStart(2,'0');
       const key = r.apt + '_' + ym;
       const paid = paymentMap[key];
-      const fee = r.fee || ((r.apt >= 2 && r.apt <= 5) ? 175 : 200);
+      const fee = r.fee || aptFee(r.apt);
       
       if (paid) {
         rowHtml += `<td style="text-align:center;border:1px solid #ddd;padding:8px;background:#e8f7f2;color:#0E9F6E;font-weight:bold;">✓</td>`;
