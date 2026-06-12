@@ -1136,7 +1136,7 @@ window.deleteResident = async () => {
 window.exportData = async () => {
   try {
     showToast('מייצא נתונים...');
-    const collections = ['residents','payments','expenses','issues','announcements'];
+    const collections = ['residents','payments','expenses','issues','announcements','paymentLog'];
     const data = {};
     for (const colName of collections) {
       const snap = await getDocs(collection(db, colName));
@@ -1175,7 +1175,7 @@ window.importData = async (event) => {
   try {
     const text = await file.text();
     const data = JSON.parse(text);
-    const collections = ['residents','payments','expenses','issues','announcements'];
+    const collections = ['residents','payments','expenses','issues','announcements','paymentLog'];
     let totalDocs = 0;
     for (const colName of collections) {
       if (Array.isArray(data[colName])) totalDocs += data[colName].length;
@@ -1356,6 +1356,10 @@ window.markPaid = async (apt, name, amount) => {
       apt: parseInt(apt), name, amount, month: ym,
       paidAt: serverTimestamp(), recordedBy: currentUser.uid
     });
+    await addDoc(collection(db, 'paymentLog'), {
+      apt: parseInt(apt), name, amount, month: ym, action: 'paid',
+      at: serverTimestamp(), by: currentUser.uid
+    });
     showToast(`✅ ${name} - תשלום נרשם`);
     loadPayments();
   } catch(e) { showToast('שגיאה: ' + e.message); }
@@ -1363,7 +1367,13 @@ window.markPaid = async (apt, name, amount) => {
 
 window.cancelPayment = async (id) => {
   if (!confirm('לבטל את התשלום?')) return;
+  const snap = await getDoc(doc(db, 'payments', id));
+  const p = snap.exists() ? snap.data() : {};
   await deleteDoc(doc(db, 'payments', id));
+  await addDoc(collection(db, 'paymentLog'), {
+    apt: p.apt, name: p.name, amount: p.amount, month: p.month, action: 'cancelled',
+    at: serverTimestamp(), by: currentUser.uid
+  });
   showToast('תשלום בוטל');
   loadPayments();
 };
@@ -1401,6 +1411,10 @@ window.savePayment = async () => {
     await addDoc(collection(db, 'payments'), {
       apt, name: resident?.name || '', amount, month, note,
       paidAt: serverTimestamp(), recordedBy: currentUser.uid
+    });
+    await addDoc(collection(db, 'paymentLog'), {
+      apt, name: resident?.name || '', amount, month, action: 'paid',
+      at: serverTimestamp(), by: currentUser.uid
     });
     showToast('✅ תשלום נרשם');
     closeModal('modal-payment');
@@ -1545,26 +1559,30 @@ window.openLog = async () => {
   container.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
   openModal('modal-log');
 
-  const snap = await getDocs(query(collection(db, 'payments'), orderBy('paidAt','desc')));
-  const payments = snap.docs.map(d => ({id: d.id, ...d.data()}));
-  
-  if (!payments.length) {
-    container.innerHTML = '<div class="card-empty">אין תשלומים רשומים</div>';
+  const snap = await getDocs(query(collection(db, 'paymentLog'), orderBy('at','desc')));
+  const entries = snap.docs.map(d => ({id: d.id, ...d.data()}));
+
+  if (!entries.length) {
+    container.innerHTML = '<div class="card-empty">אין רשומות בלוג</div>';
     return;
   }
 
   let html = '<div style="padding:12px 0;max-height:70vh;overflow-y:auto;">';
-  payments.forEach(p => {
-    const dateStr = p.paidAt ? new Date(p.paidAt.toDate()).toLocaleString('he-IL') : '-';
+  entries.forEach(p => {
+    const dateStr = p.at ? new Date(p.at.toDate()).toLocaleString('he-IL') : '-';
     const monthStr = p.month ? p.month : '-';
-    html += '<div class="card" style="margin-bottom:8px;padding:12px;font-size:13px;">'
+    const isCancelled = p.action === 'cancelled';
+    const badge = isCancelled
+      ? '<div style="text-align:left;color:var(--red);font-weight:600;">❌ בוטל</div>'
+      : '<div style="text-align:left;color:var(--green);font-weight:600;">✅ שולם</div>';
+    html += '<div class="card" style="margin-bottom:8px;padding:12px;font-size:13px;'+(isCancelled ? 'opacity:0.7;' : '')+'">'
       + '<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
       + '<div>'
-      + '<div style="font-weight:700;">'+p.name+' (דירה '+p.apt+')</div>'
-      + '<div style="color:var(--gray-400);font-size:12px;margin-top:2px;">'+monthStr+' • ₪'+(p.amount||p.fee)+'</div>'
+      + '<div style="font-weight:700;'+(isCancelled ? 'text-decoration:line-through;' : '')+'">'+p.name+' (דירה '+p.apt+')</div>'
+      + '<div style="color:var(--gray-400);font-size:12px;margin-top:2px;">'+monthStr+' • ₪'+(p.amount||0)+'</div>'
       + '<div style="color:var(--gray-400);font-size:11px;margin-top:4px;">📅 '+dateStr+'</div>'
       + '</div>'
-      + '<div style="text-align:left;color:var(--green);font-weight:600;">✅</div>'
+      + badge
       + '</div>'
       + '</div>';
   });
@@ -1765,11 +1783,19 @@ async function renderHistoryGrid(apt, name, fee) {
       if (pid) {
         if (!confirm('לבטל תשלום ' + ym + '?')) return;
         await deleteDoc(doc(db, 'payments', pid));
+        await addDoc(collection(db, 'paymentLog'), {
+          apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'cancelled',
+          at: serverTimestamp(), by: currentUser.uid
+        });
         showToast('תשלום בוטל');
       } else {
         await addDoc(collection(db, 'payments'), {
           apt: parseInt(_histApt), name: _histName, amount: _histFee,
           month: ym, paidAt: serverTimestamp(), recordedBy: currentUser.uid
+        });
+        await addDoc(collection(db, 'paymentLog'), {
+          apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'paid',
+          at: serverTimestamp(), by: currentUser.uid
         });
         showToast('✅ שולם');
       }
