@@ -452,6 +452,15 @@
       <div class="section-link" onclick="navigate('issues')">הכל ›</div>
     </div>
     <div id="home-issues" style="padding: 0 16px 16px;"></div>
+
+    <div id="backup-section" style="display:none;padding:0 16px 24px;">
+      <div class="section-header"><div class="section-title">גיבוי ושחזור</div></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn-icon" style="flex:1;" onclick="exportData()">⬇️ Export</button>
+        <button class="btn-icon" style="flex:1;" onclick="document.getElementById('import-file-input').click()">⬆️ Import</button>
+      </div>
+      <input type="file" id="import-file-input" accept="application/json" style="display:none" onchange="importData(event)"/>
+    </div>
   </div>
 
   <!-- RESIDENTS SCREEN -->
@@ -838,7 +847,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp }
+import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -973,6 +982,7 @@ function initUI() {
     document.getElementById('residents-admin-badge').style.display = '';
     document.getElementById('issues-admin-badge').style.display = '';
     document.getElementById('th-actions').style.display = '';
+    document.getElementById('backup-section').style.display = '';
   }
 
   // Month selector
@@ -1118,8 +1128,84 @@ window.deleteResident = async () => {
   } catch(e) { showToast('שגיאה: ' + e.message); }
 };
 
+window.exportData = async () => {
+  try {
+    showToast('מייצא נתונים...');
+    const collections = ['residents','payments','expenses','issues','announcements'];
+    const data = {};
+    for (const colName of collections) {
+      const snap = await getDocs(collection(db, colName));
+      data[colName] = snap.docs.map(d => {
+        const obj = d.data();
+        for (const k in obj) {
+          if (obj[k] && typeof obj[k].toDate === 'function') {
+            obj[k] = { __timestamp__: obj[k].toDate().toISOString() };
+          }
+        }
+        return { id: d.id, ...obj };
+      });
+    }
+    data.__exportedAt = new Date().toISOString();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `vaad-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('✅ הגיבוי הורד בהצלחה');
+  } catch (e) {
+    showToast('שגיאה בייצוא: ' + e.message);
+  }
+};
+
+window.importData = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const collections = ['residents','payments','expenses','issues','announcements'];
+    let totalDocs = 0;
+    for (const colName of collections) {
+      if (Array.isArray(data[colName])) totalDocs += data[colName].length;
+    }
+    if (totalDocs === 0) { showToast('לא נמצאו נתונים תקינים בקובץ'); return; }
+
+    if (!confirm(`הקובץ מכיל ${totalDocs} רשומות.\nהשחזור יוסיף/יעדכן רשומות לפי ה-ID שלהן (לא ימחק נתונים קיימים).\nלהמשיך?`)) return;
+
+    showToast('מייבא נתונים...');
+    let imported = 0;
+    for (const colName of collections) {
+      const items = data[colName];
+      if (!Array.isArray(items)) continue;
+      for (const item of items) {
+        const { id, ...fields } = item;
+        for (const k in fields) {
+          if (fields[k] && typeof fields[k] === 'object' && fields[k].__timestamp__) {
+            fields[k] = Timestamp.fromDate(new Date(fields[k].__timestamp__));
+          }
+        }
+        if (id) {
+          await setDoc(doc(db, colName, id), fields, { merge: true });
+        } else {
+          await addDoc(collection(db, colName), fields);
+        }
+        imported++;
+      }
+    }
+    showToast(`✅ יובאו ${imported} רשומות בהצלחה`);
+  } catch (e) {
+    showToast('שגיאה בייבוא: ' + e.message);
+  }
+};
+
 window.saveResident = async () => {
-  const id = document.getElementById('edit-resident-id').value;
   const apt = document.getElementById('r-apt').value.trim();
   const name = document.getElementById('r-name').value.trim();
   if (!apt || !name) { showToast('חובה למלא דירה ושם'); return; }
