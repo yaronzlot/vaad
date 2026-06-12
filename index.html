@@ -8,6 +8,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-title" content="ועד הבית"/>
   <title>ועד הבית</title>
+  <link rel="manifest" href="./manifest.json"/>
+  <link rel="icon" href="./icon-192.png"/>
+  <link rel="apple-touch-icon" href="./icon-192.png"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
@@ -678,6 +681,7 @@
       <div style="font-size:12px;color:var(--gray-400);margin-top:4px;">דירות 2-5 = 175₪, שאר הדירות = 200₪</div>
     </div>
     <button class="btn-primary" onclick="saveResident()">שמור</button>
+    <button class="btn-icon" id="btn-delete-resident" style="display:none;width:100%;margin-top:8px;color:#d33;border-color:#d33;" onclick="deleteResident()">🗑️ מחק דייר</button>
     <button class="btn-secondary" onclick="closeModal('modal-resident')">ביטול</button>
   </div>
 </div>
@@ -1074,6 +1078,7 @@ window.setResView = (view, btn) => {
 };
 
 window.openAddResident = () => {
+  document.getElementById('btn-delete-resident').style.display = 'none';
   document.getElementById('modal-resident-title').textContent = 'הוסף דייר';
   document.getElementById('edit-resident-id').value = '';
   document.getElementById('r-apt').value = '';
@@ -1087,6 +1092,7 @@ window.openAddResident = () => {
 };
 
 window.editResident = (id) => {
+  document.getElementById('btn-delete-resident').style.display = '';
   const r = allResidents.find(x => x.id === id);
   if (!r) return;
   document.getElementById('modal-resident-title').textContent = 'ערוך דייר';
@@ -1099,6 +1105,17 @@ window.editResident = (id) => {
   document.getElementById('r-role').value = r.role || 'tenant';
   document.getElementById('r-fee').value = aptFee(r.apt);
   openModal('modal-resident');
+};
+
+window.deleteResident = async () => {
+  const id = document.getElementById('edit-resident-id').value;
+  if (!id) return;
+  if (!confirm('למחוק את הדייר? פעולה זו אינה הפיכה.')) return;
+  try {
+    await deleteDoc(doc(db, 'residents', id));
+    showToast('🗑️ הדייר נמחק');
+    closeModal('modal-resident');
+  } catch(e) { showToast('שגיאה: ' + e.message); }
 };
 
 window.saveResident = async () => {
@@ -1891,6 +1908,12 @@ document.getElementById('r-apt').addEventListener('input', function() {
 
 // Initial: activate home screen
 navigate('home');
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js');
+  });
+}
 </script>
 </body>
 </html>
