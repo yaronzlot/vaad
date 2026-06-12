@@ -38,6 +38,7 @@
       --shadow-lg: 0 8px 30px rgba(0,0,0,0.12);
     }
 
+    html { height: 100%; }
     body {
       font-family: 'Heebo', sans-serif;
       background: var(--gray-50);
@@ -45,6 +46,8 @@
       min-height: 100vh;
       max-width: 480px;
       margin: 0 auto;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
     /* ===== AUTH SCREEN ===== */
