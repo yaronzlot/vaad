@@ -1465,54 +1465,32 @@ window.openLog = async () => {
   container.innerHTML = html;
 };
 
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = src;
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-}
-
 window.generatePDF = async () => {
   try {
     showToast('📄 מכין דוח...');
     if (!window.jspdf) {
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-    }
-    if (!window.jspdf.jsPDF.API.autoTable) {
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js');
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      await new Promise((resolve, reject) => {
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
     }
     await createPDFReport();
   } catch(e) {
-    showToast('שגיאה ביצירת PDF: ' + e.message);
+    showToast('שגיאה: ' + e.message);
   }
 };
-
-async function ensureHebrewFont(doc) {
-  if (doc.getFontList()['NotoSansHebrew']) return;
-  const fontUrl = 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/notosanshebrew/NotoSansHebrew-Regular.ttf';
-  const res = await fetch(fontUrl);
-  const buf = await res.arrayBuffer();
-  let binary = '';
-  const bytes = new Uint8Array(buf);
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-  }
-  const base64 = btoa(binary);
-  doc.addFileToVFS('NotoSansHebrew.ttf', base64);
-  doc.addFont('NotoSansHebrew.ttf', 'NotoSansHebrew', 'normal');
-}
 
 async function createPDFReport() {
   // Use the year of the currently selected month in the payments screen
   const selectedYm = document.getElementById('payment-month-select').value;
   const year = selectedYm ? parseInt(selectedYm.split('-')[0]) : new Date().getFullYear();
+  
   // Fetch all residents and payments for this year
   const resSnap = await getDocs(collection(db, 'residents'));
-  const residents = resSnap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (a.apt||0) - (b.apt||0));
+  const residents = resSnap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (parseInt(a.apt)||0) - (parseInt(b.apt)||0));
   
   const paySnap = await getDocs(query(collection(db, 'payments')));
   const paymentMap = {};
@@ -1524,11 +1502,52 @@ async function createPDFReport() {
     }
   });
 
-  // Build table data
-  const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-  const tableHead = ['דיירים', 'דירה', ...months, 'סה"כ'];
-  const tableBody = residents.map(r => {
-    const row = [r.name || '-', r.apt || '-'];
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({orientation: 'landscape', unit: 'mm', format: 'a4'});
+  doc.setR2L(true);
+  
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  
+  // Use helvetica - works fine with numbers and can display basic text
+  doc.setFont('helvetica', 'normal');
+  
+  // Title
+  doc.setFontSize(14);
+  doc.text('Payment Report - Building ' + year, pageWidth/2, 15, {align: 'center'});
+  
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  
+  // Table headers
+  let y = 25;
+  const colWidths = [30, 20, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 20];
+  let x = pageWidth - 10;
+  
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  
+  const headers = ['Name', 'Apt', ...months, 'Total'];
+  headers.forEach((h, i) => {
+    doc.text(h, x - colWidths.slice(0, i+1).reduce((a,b) => a+b, 0), y);
+  });
+  
+  y += 5;
+  // Draw line
+  doc.setDrawColor(26, 86, 219);
+  doc.line(10, y, pageWidth - 10, y);
+  y += 3;
+  
+  // Table rows
+  doc.setFont('helvetica', 'normal');
+  let rowIdx = 0;
+  
+  const paidSet = new Set(Object.keys(paymentMap));
+  
+  residents.forEach(r => {
+    const row = [];
+    row.push((r.name || '-').substring(0, 20));
+    row.push(String(r.apt || '-'));
+    
     let total = 0;
     for (let m = 0; m < 12; m++) {
       const ym = year + '-' + String(m+1).padStart(2,'0');
@@ -1542,51 +1561,43 @@ async function createPDFReport() {
         row.push('-');
       }
     }
-    row.push(total);
-    return row;
+    row.push('₪' + total);
+    
+    // Alternate row color
+    if (rowIdx % 2 === 0) {
+      doc.setFillColor(240, 240, 240);
+      doc.rect(10, y - 3, pageWidth - 20, 4, 'F');
+    }
+    
+    doc.setFontSize(8);
+    let cellX = pageWidth - 10;
+    row.forEach((cell, i) => {
+      const cellWidth = colWidths[i];
+      doc.text(String(cell), cellX - colWidths.slice(0, i+1).reduce((a,b) => a+b, 0), y);
+    });
+    
+    y += 4;
+    rowIdx++;
+    
+    // New page if needed
+    if (y > pageHeight - 15) {
+      doc.addPage();
+      y = 15;
+    }
   });
-
-  // Create PDF
-  const {jsPDF} = window.jspdf;
-  const doc = new jsPDF({orientation: 'landscape', unit: 'mm', format: 'a4', compress: true});
-  doc.setR2L(true); // Hebrew RTL
-  await ensureHebrewFont(doc);
-  doc.setFont('NotoSansHebrew');
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-
-  // Title
-  doc.setFontSize(16);
-  doc.text('תשלומים לוועד הבית לשנת ' + year, pageWidth/2, 15, {align: 'center'});
-  doc.setFontSize(12);
-  doc.text('עבור הערמונים 1 קרית ביאליק', pageWidth/2, 22, {align: 'center'});
-
-  // Table
-  doc.autoTable({
-    head: [tableHead],
-    body: tableBody,
-    startY: 30,
-    theme: 'grid',
-    styles: { font: 'NotoSansHebrew', fontSize: 9, halign: 'center', valign: 'middle' },
-    headStyles: { fillColor: [26, 86, 219], textColor: 255, fontStyle: 'bold', font: 'NotoSansHebrew' },
-    alternateRowStyles: { fillColor: [240, 240, 240] },
-    columnStyles: { 0: { halign: 'right' } },
-    margin: { left: 10, right: 10 }
-  });
-
+  
   // Summary
-  const finalY = doc.lastAutoTable.finalY + 10;
-  doc.setFont('NotoSansHebrew');
-  doc.setFontSize(11);
-  const totalCollected = Object.values(paymentMap).reduce((s,p) => s + (p.amount||0), 0);
-  const paidCount = Object.keys(paymentMap).length;
-  doc.text('סה"כ תשלומים: ₪' + totalCollected.toLocaleString('he-IL'), 20, finalY);
-  doc.text('מספר תשלומים: ' + paidCount, 20, finalY + 10);
-
-  // Download
+  y += 5;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  const totalCollected = Object.values(paymentMap).reduce((s,p) => s + (p.amount || 0), 0);
+  const paidCount = paymentMap ? Object.keys(paymentMap).length : 0;
+  doc.text('Total Payments: ₪' + totalCollected.toLocaleString('en-US'), 20, y);
+  doc.text('Paid: ' + paidCount, 20, y + 7);
+  
   const filename = 'vaad_bait_' + year + '.pdf';
   doc.save(filename);
-  showToast('📄 דוח PDF הורד בהצלחה');
+  showToast('📄 PDF downloaded');
 }
 
 // ===== RESIDENT PAYMENT HISTORY =====
