@@ -1633,10 +1633,10 @@ async function createPDFReport() {
   const expenseRows = expenses.map(e => {
     totalExpenses += (e.amount || 0);
     return `<tr>
-      <td style="border:1px solid #ddd;padding:8px;text-align:center;">${e.date || '-'}</td>
-      <td style="border:1px solid #ddd;padding:8px;text-align:right;">${e.description || '-'}</td>
       <td style="border:1px solid #ddd;padding:8px;text-align:center;">${e.category || '-'}</td>
       <td style="border:1px solid #ddd;padding:8px;text-align:center;font-weight:bold;">₪${(e.amount||0).toLocaleString('he-IL')}</td>
+      <td style="border:1px solid #ddd;padding:8px;text-align:right;">${e.description || '-'}</td>
+      <td style="border:1px solid #ddd;padding:8px;text-align:center;">${e.date || '-'}</td>
     </tr>`;
   }).join('');
 
@@ -1716,10 +1716,10 @@ async function createPDFReport() {
       <table>
         <thead>
           <tr>
-            <th>תאריך</th>
-            <th>תיאור</th>
             <th>קטגוריה</th>
             <th>סכום</th>
+            <th>תיאור</th>
+            <th>תאריך</th>
           </tr>
         </thead>
         <tbody>
@@ -1730,7 +1730,8 @@ async function createPDFReport() {
       <div class="summary">
         <div class="summary-line"><span class="total">סה"כ הוצאות:</span> ₪${totalExpenses.toLocaleString('he-IL')}</div>
         <div class="summary-line" style="font-size:18px;margin-top:15px;border-top:2px solid #1A56DB;padding-top:10px;">
-          <span class="total">מאזן (הכנסות - הוצאות):</span>
+          <span class="total">מאזן:</span>
+          ₪${totalCollected.toLocaleString('he-IL')} (הכנסות) - ₪${totalExpenses.toLocaleString('he-IL')} (הוצאות) =
           ₪${(totalCollected - totalExpenses).toLocaleString('he-IL')}
         </div>
       </div>
