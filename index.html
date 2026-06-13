@@ -673,6 +673,13 @@
       <input class="form-input" id="r-name" placeholder="ישראל ישראלי"/>
     </div>
     <div class="form-group">
+      <label class="form-label">בניין *</label>
+      <select class="form-select" id="r-building">
+        <option value="eshlim1">הערמונים 1, קרית ביאליק</option>
+        <option value="eshlim3">הערמונים 3, קרית ביאליק</option>
+      </select>
+    </div>
+    <div class="form-group">
       <label class="form-label">טלפון</label>
       <input class="form-input" id="r-phone" type="tel" placeholder="050-0000000"/>
     </div>
@@ -1104,6 +1111,7 @@ window.openAddResident = () => {
   document.getElementById('r-phone').value = '';
   document.getElementById('r-email').value = '';
   document.getElementById('r-role').value = 'tenant';
+  document.getElementById('r-building').value = 'eshlim1';
   document.getElementById('r-fee').value = '';
   openModal('modal-resident');
 };
@@ -1120,6 +1128,7 @@ window.editResident = (id) => {
   document.getElementById('r-phone').value = r.phone || '';
   document.getElementById('r-email').value = r.email || '';
   document.getElementById('r-role').value = r.role || 'tenant';
+  document.getElementById('r-building').value = r.buildingId || 'eshlim1';
   document.getElementById('r-fee').value = aptFee(r.apt);
   openModal('modal-resident');
 };
@@ -1224,6 +1233,7 @@ window.saveResident = async () => {
     phone: document.getElementById('r-phone').value.trim(),
     email: document.getElementById('r-email').value.trim(),
     role: document.getElementById('r-role').value,
+    buildingId: document.getElementById('r-building').value,
     updatedAt: serverTimestamp()
   };
 
@@ -1233,7 +1243,6 @@ window.saveResident = async () => {
       showToast('✅ הדייר עודכן');
     } else {
       data.createdAt = serverTimestamp();
-      data.buildingId = currentUser.buildingId;
       await addDoc(collection(db, 'residents'), data);
       showToast('✅ הדייר נוסף');
     }
