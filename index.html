@@ -527,12 +527,10 @@
 
   <!-- PAYMENTS SCREEN -->
   <div id="screen-payments" class="screen">
-    <div class="screen-header" style="flex-direction:column;align-items:stretch;gap:10px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <div class="screen-title">ניהול כספים</div>
-        <select id="payment-month-select" class="form-select" style="width:auto;padding:6px 10px;font-size:13px;" onchange="loadPayments()"></select>
-      </div>
+    <div class="screen-header">
+      <div class="screen-title">ניהול כספים</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+        <select id="payment-month-select" class="form-select" style="width:auto;padding:6px 10px;font-size:13px;" onchange="loadPayments()"></select>
         <button id="btn-add-payment" style="display:none" class="btn-icon" onclick="openAddPayment()">+ הוסף</button>
         <button id="btn-add-expense" style="display:none" class="btn-icon" onclick="openAddExpense()">+ הוצאה</button>
         <button id="btn-show-log" style="display:none" class="btn-icon" onclick="openLog()">📋 לוג</button>
@@ -1136,7 +1134,7 @@ window.deleteResident = async () => {
 window.exportData = async () => {
   try {
     showToast('מייצא נתונים...');
-    const collections = ['residents','payments','expenses','issues','announcements','paymentLog'];
+    const collections = ['residents','payments','expenses','issues','announcements'];
     const data = {};
     for (const colName of collections) {
       const snap = await getDocs(collection(db, colName));
@@ -1175,7 +1173,7 @@ window.importData = async (event) => {
   try {
     const text = await file.text();
     const data = JSON.parse(text);
-    const collections = ['residents','payments','expenses','issues','announcements','paymentLog'];
+    const collections = ['residents','payments','expenses','issues','announcements'];
     let totalDocs = 0;
     for (const colName of collections) {
       if (Array.isArray(data[colName])) totalDocs += data[colName].length;
@@ -1358,7 +1356,7 @@ window.markPaid = async (apt, name, amount) => {
     });
     await addDoc(collection(db, 'paymentLog'), {
       apt: parseInt(apt), name, amount, month: ym, action: 'paid',
-      at: serverTimestamp(), by: currentUser.uid
+      at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
     });
     showToast(`✅ ${name} - תשלום נרשם`);
     loadPayments();
@@ -1372,7 +1370,7 @@ window.cancelPayment = async (id) => {
   await deleteDoc(doc(db, 'payments', id));
   await addDoc(collection(db, 'paymentLog'), {
     apt: p.apt, name: p.name, amount: p.amount, month: p.month, action: 'cancelled',
-    at: serverTimestamp(), by: currentUser.uid
+    at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
   });
   showToast('תשלום בוטל');
   loadPayments();
@@ -1411,10 +1409,6 @@ window.savePayment = async () => {
     await addDoc(collection(db, 'payments'), {
       apt, name: resident?.name || '', amount, month, note,
       paidAt: serverTimestamp(), recordedBy: currentUser.uid
-    });
-    await addDoc(collection(db, 'paymentLog'), {
-      apt, name: resident?.name || '', amount, month, action: 'paid',
-      at: serverTimestamp(), by: currentUser.uid
     });
     showToast('✅ תשלום נרשם');
     closeModal('modal-payment');
@@ -1548,6 +1542,26 @@ async function loadBalance() {
         + '<span style="font-size:11px;color:var(--gray-400);margin-right:6px;">'+pct+'%</span>'
         + '</div></div>';
     });
+    
+    // Expenses detail table
+    html += '<div style="font-size:15px;font-weight:700;margin-top:20px;margin-bottom:10px;">פירוט הוצאות</div>';
+    html += '<div style="overflow-x:auto;">'
+      + '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+      + '<thead><tr style="background-color:var(--blue);color:white;">'
+      + '<th style="border:1px solid #ddd;padding:8px;text-align:center;">קטגוריה</th>'
+      + '<th style="border:1px solid #ddd;padding:8px;text-align:center;">סכום</th>'
+      + '<th style="border:1px solid #ddd;padding:8px;text-align:right;">תיאור</th>'
+      + '<th style="border:1px solid #ddd;padding:8px;text-align:center;">תאריך</th>'
+      + '</tr></thead><tbody>';
+    allExpenses.sort((a,b) => (b.date||'').localeCompare(a.date||'')).forEach(e => {
+      html += '<tr>'
+        + '<td style="border:1px solid #ddd;padding:8px;text-align:center;">'+e.category+'</td>'
+        + '<td style="border:1px solid #ddd;padding:8px;text-align:center;font-weight:bold;">₪'+(e.amount||0).toLocaleString('he-IL')+'</td>'
+        + '<td style="border:1px solid #ddd;padding:8px;text-align:right;">'+e.description+'</td>'
+        + '<td style="border:1px solid #ddd;padding:8px;text-align:center;">'+e.date+'</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></div>';
   }
   html += '</div>';
   container.innerHTML = html;
@@ -1561,7 +1575,7 @@ window.openLog = async () => {
 
   const snap = await getDocs(query(collection(db, 'paymentLog'), orderBy('at','desc')));
   const entries = snap.docs.map(d => ({id: d.id, ...d.data()}));
-
+  
   if (!entries.length) {
     container.innerHTML = '<div class="card-empty">אין רשומות בלוג</div>';
     return;
@@ -1580,7 +1594,7 @@ window.openLog = async () => {
       + '<div>'
       + '<div style="font-weight:700;'+(isCancelled ? 'text-decoration:line-through;' : '')+'">'+p.name+' (דירה '+p.apt+')</div>'
       + '<div style="color:var(--gray-400);font-size:12px;margin-top:2px;">'+monthStr+' • ₪'+(p.amount||0)+'</div>'
-      + '<div style="color:var(--gray-400);font-size:11px;margin-top:4px;">📅 '+dateStr+'</div>'
+      + '<div style="color:var(--gray-400);font-size:11px;margin-top:4px;">📅 '+dateStr+' ✏️ '+p.byName+'</div>'
       + '</div>'
       + badge
       + '</div>'
@@ -1627,6 +1641,9 @@ async function createPDFReport() {
     }
   });
 
+  const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  
+  // Load expenses
   const expSnap = await getDocs(query(collection(db, 'expenses'), orderBy('date','asc')));
   const expenses = expSnap.docs.map(d => ({id: d.id, ...d.data()})).filter(e => e.date && e.date.startsWith(String(year)));
   let totalExpenses = 0;
@@ -1639,8 +1656,6 @@ async function createPDFReport() {
       <td style="border:1px solid #ddd;padding:8px;text-align:center;">${e.date || '-'}</td>
     </tr>`;
   }).join('');
-
-  const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   
   let tableRows = '';
   let totalCollected = 0;
@@ -1689,7 +1704,7 @@ async function createPDFReport() {
       </style>
     </head>
     <body>
-      <h1>דוח תשלומים לוועד הבית</h1>
+      <h1 style="letter-spacing:4px;">דוח תשלומים לוועד הבית</h1>
       <h2>שנה ${year}</h2>
       
       <table>
@@ -1705,14 +1720,8 @@ async function createPDFReport() {
           ${tableRows}
         </tbody>
       </table>
-      
-      <div class="summary">
-        <div class="summary-line"><span class="total">סה"כ תשלומים:</span> ₪${totalCollected.toLocaleString('he-IL')}</div>
-        <div class="summary-line"><span class="total">מספר תשלומים:</span> ${paidCount}</div>
-        <div class="summary-line"><span class="total">סה"כ דיירים:</span> ${residents.length}</div>
-      </div>
 
-      <h2 style="margin-top:30px;">הוצאות ${year}</h2>
+      <h2>הוצאות ${year}</h2>
       <table>
         <thead>
           <tr>
@@ -1728,11 +1737,10 @@ async function createPDFReport() {
       </table>
 
       <div class="summary">
+        <div class="summary-line"><span class="total">סה"כ הכנסות:</span> ₪${totalCollected.toLocaleString('he-IL')}</div>
         <div class="summary-line"><span class="total">סה"כ הוצאות:</span> ₪${totalExpenses.toLocaleString('he-IL')}</div>
-        <div class="summary-line" style="font-size:18px;margin-top:15px;border-top:2px solid #1A56DB;padding-top:10px;">
-          <span class="total">מאזן:</span>
-          ₪${totalCollected.toLocaleString('he-IL')} (הכנסות) - ₪${totalExpenses.toLocaleString('he-IL')} (הוצאות) =
-          ₪${(totalCollected - totalExpenses).toLocaleString('he-IL')}
+        <div style="border-top:2px solid #000;margin:15px 0;padding-top:10px;font-weight:700;text-align:center;font-size:16px;">
+          יתרה בחשבון: ₪${(totalCollected - totalExpenses).toLocaleString('he-IL')}
         </div>
       </div>
     </body>
@@ -1820,19 +1828,11 @@ async function renderHistoryGrid(apt, name, fee) {
       if (pid) {
         if (!confirm('לבטל תשלום ' + ym + '?')) return;
         await deleteDoc(doc(db, 'payments', pid));
-        await addDoc(collection(db, 'paymentLog'), {
-          apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'cancelled',
-          at: serverTimestamp(), by: currentUser.uid
-        });
         showToast('תשלום בוטל');
       } else {
         await addDoc(collection(db, 'payments'), {
           apt: parseInt(_histApt), name: _histName, amount: _histFee,
           month: ym, paidAt: serverTimestamp(), recordedBy: currentUser.uid
-        });
-        await addDoc(collection(db, 'paymentLog'), {
-          apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'paid',
-          at: serverTimestamp(), by: currentUser.uid
         });
         showToast('✅ שולם');
       }
