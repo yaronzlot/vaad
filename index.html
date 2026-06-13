@@ -1627,6 +1627,19 @@ async function createPDFReport() {
     }
   });
 
+  const expSnap = await getDocs(query(collection(db, 'expenses'), orderBy('date','asc')));
+  const expenses = expSnap.docs.map(d => ({id: d.id, ...d.data()})).filter(e => e.date && e.date.startsWith(String(year)));
+  let totalExpenses = 0;
+  const expenseRows = expenses.map(e => {
+    totalExpenses += (e.amount || 0);
+    return `<tr>
+      <td style="border:1px solid #ddd;padding:8px;text-align:center;">${e.date || '-'}</td>
+      <td style="border:1px solid #ddd;padding:8px;text-align:right;">${e.description || '-'}</td>
+      <td style="border:1px solid #ddd;padding:8px;text-align:center;">${e.category || '-'}</td>
+      <td style="border:1px solid #ddd;padding:8px;text-align:center;font-weight:bold;">₪${(e.amount||0).toLocaleString('he-IL')}</td>
+    </tr>`;
+  }).join('');
+
   const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   
   let tableRows = '';
@@ -1697,6 +1710,29 @@ async function createPDFReport() {
         <div class="summary-line"><span class="total">סה"כ תשלומים:</span> ₪${totalCollected.toLocaleString('he-IL')}</div>
         <div class="summary-line"><span class="total">מספר תשלומים:</span> ${paidCount}</div>
         <div class="summary-line"><span class="total">סה"כ דיירים:</span> ${residents.length}</div>
+      </div>
+
+      <h2 style="margin-top:30px;">הוצאות ${year}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>תאריך</th>
+            <th>תיאור</th>
+            <th>קטגוריה</th>
+            <th>סכום</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${expenseRows || '<tr><td colspan="4" style="text-align:center;border:1px solid #ddd;padding:8px;">אין הוצאות רשומות</td></tr>'}
+        </tbody>
+      </table>
+
+      <div class="summary">
+        <div class="summary-line"><span class="total">סה"כ הוצאות:</span> ₪${totalExpenses.toLocaleString('he-IL')}</div>
+        <div class="summary-line" style="font-size:18px;margin-top:15px;border-top:2px solid #1A56DB;padding-top:10px;">
+          <span class="total">מאזן (הכנסות - הוצאות):</span>
+          ₪${(totalCollected - totalExpenses).toLocaleString('he-IL')}
+        </div>
       </div>
     </body>
     </html>
