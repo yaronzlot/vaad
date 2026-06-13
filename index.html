@@ -1354,10 +1354,14 @@ window.markPaid = async (apt, name, amount) => {
       apt: parseInt(apt), name, amount, month: ym,
       paidAt: serverTimestamp(), recordedBy: currentUser.uid
     });
-    await addDoc(collection(db, 'paymentLog'), {
-      apt: parseInt(apt), name, amount, month: ym, action: 'paid',
-      at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
-    });
+    try {
+      await addDoc(collection(db, 'paymentLog'), {
+        apt: parseInt(apt), name, amount, month: ym, action: 'paid',
+        at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
+      });
+    } catch(logErr) {
+      console.warn('paymentLog write failed:', logErr);
+    }
     showToast(`✅ ${name} - תשלום נרשם`);
     loadPayments();
   } catch(e) { showToast('שגיאה: ' + e.message); }
@@ -1365,15 +1369,21 @@ window.markPaid = async (apt, name, amount) => {
 
 window.cancelPayment = async (id) => {
   if (!confirm('לבטל את התשלום?')) return;
-  const snap = await getDoc(doc(db, 'payments', id));
-  const p = snap.exists() ? snap.data() : {};
-  await deleteDoc(doc(db, 'payments', id));
-  await addDoc(collection(db, 'paymentLog'), {
-    apt: p.apt, name: p.name, amount: p.amount, month: p.month, action: 'cancelled',
-    at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
-  });
-  showToast('תשלום בוטל');
-  loadPayments();
+  try {
+    const snap = await getDoc(doc(db, 'payments', id));
+    const p = snap.exists() ? snap.data() : {};
+    await deleteDoc(doc(db, 'payments', id));
+    try {
+      await addDoc(collection(db, 'paymentLog'), {
+        apt: p.apt, name: p.name, amount: p.amount, month: p.month, action: 'cancelled',
+        at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
+      });
+    } catch(logErr) {
+      console.warn('paymentLog write failed:', logErr);
+    }
+    showToast('תשלום בוטל');
+    loadPayments();
+  } catch(e) { showToast('שגיאה: ' + e.message); }
 };
 
 window.openAddPayment = () => {
@@ -1410,6 +1420,14 @@ window.savePayment = async () => {
       apt, name: resident?.name || '', amount, month, note,
       paidAt: serverTimestamp(), recordedBy: currentUser.uid
     });
+    try {
+      await addDoc(collection(db, 'paymentLog'), {
+        apt: parseInt(apt), name: resident?.name || '', amount, month, action: 'paid',
+        at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
+      });
+    } catch(logErr) {
+      console.warn('paymentLog write failed:', logErr);
+    }
     showToast('✅ תשלום נרשם');
     closeModal('modal-payment');
     loadPayments();
@@ -1594,7 +1612,7 @@ window.openLog = async () => {
       + '<div>'
       + '<div style="font-weight:700;'+(isCancelled ? 'text-decoration:line-through;' : '')+'">'+p.name+' (דירה '+p.apt+')</div>'
       + '<div style="color:var(--gray-400);font-size:12px;margin-top:2px;">'+monthStr+' • ₪'+(p.amount||0)+'</div>'
-      + '<div style="color:var(--gray-400);font-size:11px;margin-top:4px;">📅 '+dateStr+' ✏️ '+p.byName+'</div>'
+      + '<div style="color:var(--gray-400);font-size:11px;margin-top:4px;">📅 '+dateStr+' ✏️ '+(p.byName || 'מנהל')+'</div>'
       + '</div>'
       + badge
       + '</div>'
@@ -1739,8 +1757,8 @@ async function createPDFReport() {
       <div class="summary">
         <div class="summary-line"><span class="total">סה"כ הכנסות:</span> ₪${totalCollected.toLocaleString('he-IL')}</div>
         <div class="summary-line"><span class="total">סה"כ הוצאות:</span> ₪${totalExpenses.toLocaleString('he-IL')}</div>
-        <div style="border-top:2px solid #000;margin:15px 0;padding-top:10px;font-weight:700;text-align:center;font-size:16px;">
-          יתרה בחשבון: ₪${(totalCollected - totalExpenses).toLocaleString('he-IL')}
+        <div style="border-top:2px solid #000;margin:15px 0;padding:15px 0;font-weight:700;text-align:center;font-size:18px;">
+          יתרה בחשבון:&nbsp;&nbsp;<span style="color:#0E9F6E;">₪${(totalCollected - totalExpenses).toLocaleString('he-IL')}</span>
         </div>
       </div>
     </body>
@@ -1827,13 +1845,31 @@ async function renderHistoryGrid(apt, name, fee) {
       const pid = cell.dataset.pid;
       if (pid) {
         if (!confirm('לבטל תשלום ' + ym + '?')) return;
+        const snap = await getDoc(doc(db, 'payments', pid));
+        const p = snap.exists() ? snap.data() : {};
         await deleteDoc(doc(db, 'payments', pid));
+        try {
+          await addDoc(collection(db, 'paymentLog'), {
+            apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'cancelled',
+            at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
+          });
+        } catch(logErr) {
+          console.warn('paymentLog write failed:', logErr);
+        }
         showToast('תשלום בוטל');
       } else {
         await addDoc(collection(db, 'payments'), {
           apt: parseInt(_histApt), name: _histName, amount: _histFee,
           month: ym, paidAt: serverTimestamp(), recordedBy: currentUser.uid
         });
+        try {
+          await addDoc(collection(db, 'paymentLog'), {
+            apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'paid',
+            at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
+          });
+        } catch(logErr) {
+          console.warn('paymentLog write failed:', logErr);
+        }
         showToast('✅ שולם');
       }
       await renderHistoryGrid(_histApt, _histName, _histFee);
