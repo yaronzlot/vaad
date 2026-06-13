@@ -673,13 +673,6 @@
       <input class="form-input" id="r-name" placeholder="ישראל ישראלי"/>
     </div>
     <div class="form-group">
-      <label class="form-label">בניין *</label>
-      <select class="form-select" id="r-building">
-        <option value="eshlim1">הערמונים 1, קרית ביאליק</option>
-        <option value="eshlim3">הערמונים 3, קרית ביאליק</option>
-      </select>
-    </div>
-    <div class="form-group">
       <label class="form-label">טלפון</label>
       <input class="form-input" id="r-phone" type="tel" placeholder="050-0000000"/>
     </div>
@@ -958,10 +951,6 @@ onAuthStateChanged(auth, async (user) => {
     await updateDoc(doc(db, 'residents', userDoc.id), { uid: user.uid });
   }
   currentUser = { uid: user.uid, docId: userDoc.id, ...userDoc.data() };
-  // Set default building if not specified
-  if (!currentUser.buildingId) {
-    currentUser.buildingId = 'eshlim1'; // Default building
-  }
   isAdmin = currentUser.role === 'admin';
 
   document.getElementById('auth-screen').style.display = 'none';
@@ -1032,7 +1021,7 @@ function loadAll() {
 
 // ===== RESIDENTS =====
 function loadResidents() {
-  onSnapshot(query(collection(db, 'residents'), where('buildingId','==',currentUser.buildingId)), (snap) => {
+  onSnapshot(collection(db, 'residents'), (snap) => {
     allResidents = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     allResidents.sort((a,b) => (parseInt(a.apt)||0) - (parseInt(b.apt)||0));
     renderResidents(allResidents);
@@ -1111,7 +1100,6 @@ window.openAddResident = () => {
   document.getElementById('r-phone').value = '';
   document.getElementById('r-email').value = '';
   document.getElementById('r-role').value = 'tenant';
-  document.getElementById('r-building').value = 'eshlim1';
   document.getElementById('r-fee').value = '';
   openModal('modal-resident');
 };
@@ -1128,7 +1116,6 @@ window.editResident = (id) => {
   document.getElementById('r-phone').value = r.phone || '';
   document.getElementById('r-email').value = r.email || '';
   document.getElementById('r-role').value = r.role || 'tenant';
-  document.getElementById('r-building').value = r.buildingId || 'eshlim1';
   document.getElementById('r-fee').value = aptFee(r.apt);
   openModal('modal-resident');
 };
@@ -1233,7 +1220,6 @@ window.saveResident = async () => {
     phone: document.getElementById('r-phone').value.trim(),
     email: document.getElementById('r-email').value.trim(),
     role: document.getElementById('r-role').value,
-    buildingId: document.getElementById('r-building').value,
     updatedAt: serverTimestamp()
   };
 
@@ -1253,7 +1239,7 @@ window.saveResident = async () => {
 // ===== PAYMENTS =====
 window.loadPayments = async () => {
   const ym = document.getElementById('payment-month-select').value;
-  const snap = await getDocs(query(collection(db, 'payments'), where('month','==',ym), where('buildingId','==',currentUser.buildingId)));
+  const snap = await getDocs(query(collection(db, 'payments'), where('month','==',ym)));
   allPayments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   renderPayments(ym);
 };
@@ -1365,12 +1351,12 @@ window.markPaid = async (apt, name, amount) => {
   const ym = document.getElementById('payment-month-select').value;
   try {
     await addDoc(collection(db, 'payments'), {
-      apt: parseInt(apt), name, amount, month: ym, buildingId: currentUser.buildingId,
+      apt: parseInt(apt), name, amount, month: ym,
       paidAt: serverTimestamp(), recordedBy: currentUser.uid
     });
     try {
       await addDoc(collection(db, 'paymentLog'), {
-        apt: parseInt(apt), name, amount, month: ym, action: 'paid', buildingId: currentUser.buildingId,
+        apt: parseInt(apt), name, amount, month: ym, action: 'paid',
         at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
       });
     } catch(logErr) {
@@ -1389,7 +1375,7 @@ window.cancelPayment = async (id) => {
     await deleteDoc(doc(db, 'payments', id));
     try {
       await addDoc(collection(db, 'paymentLog'), {
-        apt: p.apt, name: p.name, amount: p.amount, month: p.month, action: 'cancelled', buildingId: currentUser.buildingId,
+        apt: p.apt, name: p.name, amount: p.amount, month: p.month, action: 'cancelled',
         at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
       });
     } catch(logErr) {
@@ -1431,12 +1417,12 @@ window.savePayment = async () => {
   const resident = allResidents.find(r => r.apt === apt);
   try {
     await addDoc(collection(db, 'payments'), {
-      apt, name: resident?.name || '', amount, month, note, buildingId: currentUser.buildingId,
+      apt, name: resident?.name || '', amount, month, note,
       paidAt: serverTimestamp(), recordedBy: currentUser.uid
     });
     try {
       await addDoc(collection(db, 'paymentLog'), {
-        apt: parseInt(apt), name: resident?.name || '', amount, month, action: 'paid', buildingId: currentUser.buildingId,
+        apt: parseInt(apt), name: resident?.name || '', amount, month, action: 'paid',
         at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
       });
     } catch(logErr) {
@@ -1454,7 +1440,7 @@ let allExpenses = [];
 function loadExpenses() {
   const container = document.getElementById('expenses-list');
   container.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
-  getDocs(query(collection(db, 'expenses'), where('buildingId','==',currentUser.buildingId), orderBy('date','desc'))).then(snap => {
+  getDocs(query(collection(db, 'expenses'), orderBy('date','desc'))).then(snap => {
     allExpenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderExpenses();
   });
@@ -1505,7 +1491,7 @@ window.saveExpense = async () => {
   try {
     await addDoc(collection(db, 'expenses'), {
       category: document.getElementById('exp-cat').value,
-      description: desc, amount, buildingId: currentUser.buildingId,
+      description: desc, amount,
       date: document.getElementById('exp-date').value,
       createdAt: serverTimestamp(), createdBy: currentUser.uid
     });
@@ -1534,7 +1520,7 @@ async function loadBalance() {
   const totalCollected = paySnap.docs.reduce((s,d) => s + (d.data().amount||0), 0);
 
   // Total expenses (all time)
-  const expSnap = await getDocs(query(collection(db, 'expenses'), where('buildingId','==',currentUser.buildingId)));
+  const expSnap = await getDocs(collection(db, 'expenses'));
   const totalExpenses = expSnap.docs.reduce((s,d) => s + (d.data().amount||0), 0);
   allExpenses = expSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
@@ -1605,7 +1591,7 @@ window.openLog = async () => {
   container.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div></div>';
   openModal('modal-log');
 
-  const snap = await getDocs(query(collection(db, 'paymentLog'), where('buildingId','==',currentUser.buildingId), orderBy('at','desc')));
+  const snap = await getDocs(query(collection(db, 'paymentLog'), orderBy('at','desc')));
   const entries = snap.docs.map(d => ({id: d.id, ...d.data()}));
   
   if (!entries.length) {
@@ -1663,7 +1649,7 @@ async function createPDFReport() {
   const resSnap = await getDocs(collection(db, 'residents'));
   const residents = resSnap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (parseInt(a.apt)||0) - (parseInt(b.apt)||0));
   
-  const paySnap = await getDocs(query(collection(db, 'payments'), where('buildingId','==',currentUser.buildingId)));
+  const paySnap = await getDocs(query(collection(db, 'payments')));
   const paymentMap = {};
   paySnap.docs.forEach(d => {
     const p = d.data();
@@ -1676,7 +1662,7 @@ async function createPDFReport() {
   const months = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   
   // Load expenses
-  const expSnap = await getDocs(query(collection(db, 'expenses'), where('buildingId','==',currentUser.buildingId), orderBy('date','asc')));
+  const expSnap = await getDocs(query(collection(db, 'expenses'), orderBy('date','asc')));
   const expenses = expSnap.docs.map(d => ({id: d.id, ...d.data()})).filter(e => e.date && e.date.startsWith(String(year)));
   let totalExpenses = 0;
   const expenseRows = expenses.map(e => {
@@ -1810,7 +1796,7 @@ window.showResidentHistory = async (apt, name, fee) => {
 async function renderHistoryGrid(apt, name, fee) {
   const year = new Date().getFullYear();
   const monthNames = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-  const snap = await getDocs(query(collection(db, 'payments'), where('apt','==', parseInt(apt)), where('buildingId','==',currentUser.buildingId)));
+  const snap = await getDocs(query(collection(db, 'payments'), where('apt','==', parseInt(apt))));
   const paidMonths = {};
   snap.docs.forEach(d => {
     const p = d.data();
@@ -1865,7 +1851,7 @@ async function renderHistoryGrid(apt, name, fee) {
         await deleteDoc(doc(db, 'payments', pid));
         try {
           await addDoc(collection(db, 'paymentLog'), {
-            apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'cancelled', buildingId: currentUser.buildingId,
+            apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'cancelled',
             at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
           });
         } catch(logErr) {
@@ -1874,12 +1860,12 @@ async function renderHistoryGrid(apt, name, fee) {
         showToast('תשלום בוטל');
       } else {
         await addDoc(collection(db, 'payments'), {
-          apt: parseInt(_histApt), name: _histName, amount: _histFee, buildingId: currentUser.buildingId,
+          apt: parseInt(_histApt), name: _histName, amount: _histFee,
           month: ym, paidAt: serverTimestamp(), recordedBy: currentUser.uid
         });
         try {
           await addDoc(collection(db, 'paymentLog'), {
-            apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'paid', buildingId: currentUser.buildingId,
+            apt: parseInt(_histApt), name: _histName, amount: _histFee, month: ym, action: 'paid',
             at: serverTimestamp(), by: currentUser.uid, byName: currentUser.name || currentUser.email
           });
         } catch(logErr) {
@@ -1897,7 +1883,7 @@ async function renderHistoryGrid(apt, name, fee) {
 
 // ===== ISSUES =====
 function loadIssues() {
-  onSnapshot(query(collection(db, 'issues'), where('buildingId','==',currentUser.buildingId), orderBy('createdAt','desc')), (snap) => {
+  onSnapshot(query(collection(db, 'issues'), orderBy('createdAt','desc')), (snap) => {
     allIssues = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderIssues();
     updateHomeStats();
@@ -1989,7 +1975,6 @@ window.saveIssue = async () => {
     } else {
       data.createdAt = serverTimestamp();
       data.createdBy = currentUser.uid;
-      data.buildingId = currentUser.buildingId;
       await addDoc(collection(db, 'issues'), data);
       showToast('✅ קריאה נפתחה');
     }
@@ -2005,7 +1990,7 @@ window.deleteIssue = async (id) => {
 
 // ===== ANNOUNCEMENTS =====
 function loadAnnouncements() {
-  onSnapshot(query(collection(db, 'announcements'), where('buildingId','==',currentUser.buildingId), orderBy('createdAt','desc')), (snap) => {
+  onSnapshot(query(collection(db, 'announcements'), orderBy('createdAt','desc')), (snap) => {
     allAnnouncements = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderAnnouncements();
     renderHomeAnnouncements();
@@ -2069,7 +2054,7 @@ window.saveAnnounce = async () => {
   if (!title || !body) { showToast('חובה למלא כותרת ותוכן'); return; }
   try {
     await addDoc(collection(db, 'announcements'), {
-      title, body, buildingId: currentUser.buildingId,
+      title, body,
       category: document.getElementById('a-cat').value,
       createdAt: serverTimestamp(),
       createdBy: currentUser.uid
